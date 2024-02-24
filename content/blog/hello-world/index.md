@@ -1,231 +1,84 @@
 ---
-title: Hello World
-date: "2015-05-01T22:12:03.284Z"
-description: "Hello World"
+title: Sqlalchemy autocommit
+date: "2024-02-24T22:15:03.284Z"
+description: "Sqlahchemy autocommit explanation"
 ---
 
-This is my first post on my new fake blog! How exciting!
+tl;dr
 
-I'm sure I'll write a lot more interesting things in the future.
+`autocommit=False` means this:
 
-Oh, and here's a great quote from this Wikipedia on
-[salted duck eggs](https://en.wikipedia.org/wiki/Salted_duck_egg).
+```python
+query = "SELECT 1"
+if not autocommit:
+	query = f'BEGIN {query}' # implicit transaction
 
-> A salted duck egg is a Chinese preserved food product made by soaking duck
-> eggs in brine, or packing each egg in damp, salted charcoal. In Asian
-> supermarkets, these eggs are sometimes sold covered in a thick layer of salted
-> charcoal paste. The eggs may also be sold with the salted paste removed,
-> wrapped in plastic, and vacuum packed. From the salt curing process, the
-> salted duck eggs have a briny aroma, a gelatin-like egg white and a
-> firm-textured, round yolk that is bright orange-red in color.
-
-![Chinese Salty Egg](./salty_egg.jpg)
-
-You can also write code blocks here!
-
-```js
-const saltyDuckEgg = "chinese preserved food product"
+conn.execute(query)
+conn.commit()  # without this it won't commit/rollback
 ```
 
-| Number | Title                                    | Year |
-| :----- | :--------------------------------------- | ---: |
-| 1      | Harry Potter and the Philosopher’s Stone | 2001 |
-| 2      | Harry Potter and the Chamber of Secrets  | 2002 |
-| 3      | Harry Potter and the Prisoner of Azkaban | 2004 |
+`autocommit=True` means this:
 
-[View raw (TEST.md)](https://raw.github.com/adamschwartz/github-markdown-kitchen-sink/master/README.md)
+```python
+query = "SELECT 1"
+conn.execute(query)  # commited automatically, no transaction
 
-This is a paragraph.
-
-    This is a paragraph.
-
-# Header 1
-
-## Header 2
-
-    Header 1
-    ========
-
-    Header 2
-    --------
-
-# Header 1
-
-## Header 2
-
-### Header 3
-
-#### Header 4
-
-##### Header 5
-
-###### Header 6
-
-    # Header 1
-    ## Header 2
-    ### Header 3
-    #### Header 4
-    ##### Header 5
-    ###### Header 6
-
-# Header 1
-
-## Header 2
-
-### Header 3
-
-#### Header 4
-
-##### Header 5
-
-###### Header 6
-
-    # Header 1 #
-    ## Header 2 ##
-    ### Header 3 ###
-    #### Header 4 ####
-    ##### Header 5 #####
-    ###### Header 6 ######
-
-> Lorem ipsum dolor sit amet, consectetuer adipiscing elit. Aliquam hendrerit mi posuere lectus. Vestibulum enim wisi, viverra nec, fringilla in, laoreet vitae, risus.
-
-    > Lorem ipsum dolor sit amet, consectetuer adipiscing elit. Aliquam hendrerit mi posuere lectus. Vestibulum enim wisi, viverra nec, fringilla in, laoreet vitae, risus.
-
-> ## This is a header.
->
-> 1. This is the first list item.
-> 2. This is the second list item.
->
-> Here's some example code:
->
->     Markdown.generate();
-
-    > ## This is a header.
-    > 1. This is the first list item.
-    > 2. This is the second list item.
-    >
-    > Here's some example code:
-    >
-    >     Markdown.generate();
-
-- Red
-- Green
-- Blue
-
-* Red
-* Green
-* Blue
-
-- Red
-- Green
-- Blue
-
-```markdown
-- Red
-- Green
-- Blue
-
-* Red
-* Green
-* Blue
-
-- Red
-- Green
-- Blue
+# explicit transaction
+with conn.begin():
+  conn.execute(query)
+  # commited (or rolled back on error)
 ```
 
-- `code goes` here in this line
-- **bold** goes here
+Long answer:
 
-```markdown
-- `code goes` here in this line
-- **bold** goes here
+Python has DBAPI [PEP 249](https://peps.python.org/pep-0249/). All existing drivers try to be PEP-249-compatible.
+
+One of the main PEP's design choices is an `implicit transaction` - basically, PEP 249 has no `begin` method - which means there must always be a transaction.
+
+Postgres has no such feature as an implicit transaction so [`psycopg`](https://www.psycopg.org/docs/usage.html#transactions-control) for example just adds `BEGIN` to all queries - this is emulated PEP 249 implicit transaction.
+
+`autocommit` in psycopg (and in sqlachemy) is a way to disable this implicit `BEGIN`. Once `autocommit=True` psycopg won't append any `BEGIN` to you query. This means that each query is executed and commited in one go - you can not roll it back. If you want to rollback you have to call `.begin()` yourself and this will let you commit/rollback explicitly.
+
+Sqlalchemy 2.0 dropped library-level `autocommit` - which means that you can not execute a query without a transaction - sqlalchemy will always open a transaction for you query but you need to commit it yourself.
+
+So the main difference is that in sqlalchemy this query commits if `autocommit=True` :
+
+```python
+conn.execute('DELETE FROM users WHERE id = 1')
 ```
 
-1. Buy flour and salt
-1. Mix together with water
-1. Bake
+but in sqlachemy 2.0 it won't. You need to commit explicitly now
 
-```markdown
-1. Buy flour and salt
-1. Mix together with water
-1. Bake
+```python
+conn.execute('DELETE FROM users WHERE id = 1')
+conn.commit()
 ```
 
-1. `code goes` here in this line
-1. **bold** goes here
+As sqla docs [says](https://docs.sqlalchemy.org/en/20/changelog/migration_20.html#driver-level-autocommit-remains-available) , "true" `autocommit` is available via driver.
+> For sqlahchemy "true" autocommit these days [means](https://docs.sqlalchemy.org/en/20/core/connections.html#dbapi-autocommit) a separate transaction level.
 
-```markdown
-1. `code goes` here in this line
-1. **bold** goes here
+One interesting advice from docs is to use a separate engine for read-only queries with `AUTOCOMMIT`:
+
+>One such use case is an application that has operations that break into “transactional” and “read-only” operations, a separate [`Engine`](https://docs.sqlalchemy.org/en/20/core/connections.html#sqlalchemy.engine.Engine "sqlalchemy.engine.Engine") that makes use of `"AUTOCOMMIT"` may be separated off from the main engine:
+
+```python
+from sqlalchemy import create_engine
+
+eng = create_engine("postgresql+psycopg2://scott:tiger@localhost/test")
+
+autocommit_engine = eng.execution_options(isolation_level="AUTOCOMMIT")
 ```
 
-Paragraph:
+`autocommit_engine` here will be used for read-only queries so settings `AUTOCOMMIT` here will tell the driver not to emit `BEGIN` as the doc says
 
-    Code
+> It is important to note that “autocommit” mode persists even when the [`Connection.begin()`](https://docs.sqlalchemy.org/en/20/core/connections.html#sqlalchemy.engine.Connection.begin "sqlalchemy.engine.Connection.begin") method is called; the DBAPI will not emit any BEGIN to the database, nor will it emit COMMIT when [`Connection.commit()`](https://docs.sqlalchemy.org/en/20/core/connections.html#sqlalchemy.engine.Connection.commit "sqlalchemy.engine.Connection.commit") is called.
 
-<!-- -->
-
-    Paragraph:
-
-        Code
-
----
-
----
-
----
-
----
-
----
-
-    * * *
-
-    ***
-
-    *****
-
-    - - -
-
-    ---------------------------------------
-
-This is [an example](http://example.com "Example") link.
-
-[This link](http://example.com) has no title attr.
-
-This is [an example][id] reference-style link.
-
-[id]: http://example.com "Optional Title"
-
-    This is [an example](http://example.com "Example") link.
-
-    [This link](http://example.com) has no title attr.
-
-    This is [an example] [id] reference-style link.
-
-    [id]: http://example.com "Optional Title"
-
-_single asterisks_
-
-_single underscores_
-
-**double asterisks**
-
-**double underscores**
-
-    *single asterisks*
-
-    _single underscores_
-
-    **double asterisks**
-
-    __double underscores__
-
-This paragraph has some `code` in it.
-
-    This paragraph has some `code` in it.
-
-![Alt Text](https://via.placeholder.com/200x50 "Image Title")
-
-    ![Alt Text](https://via.placeholder.com/200x50 "Image Title")
+Links:
+- https://www.oddbird.net/2014/06/14/sqlalchemy-postgres-autocommit/
+- https://python-gino.org/docs/en/1.0/explanation/why.html
+- https://www.psycopg.org/docs/usage.html#transactions-control
+- https://www.psycopg.org/psycopg3/docs/basic/transactions.html
+- https://docs.sqlalchemy.org/en/20/changelog/migration_20.html#library-level-but-not-driver-level-autocommit-removed-from-both-core-and-orm
+- https://docs.sqlalchemy.org/en/20/changelog/migration_20.html#driver-level-autocommit-remains-available
+- https://docs.sqlalchemy.org/en/20/core/connections.html#dbapi-autocommit
+- https://docs.sqlalchemy.org/en/20/core/connections.html#dbapi-autocommit-understanding
