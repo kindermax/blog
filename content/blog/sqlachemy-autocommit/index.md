@@ -1,7 +1,7 @@
 ---
 title: Sqlalchemy autocommit
 date: "2024-02-24T22:15:03.284Z"
-description: "Sqlahchemy autocommit explanation"
+description: "What is sqlahchemy autocommit and how it works"
 ---
 
 tl;dr
@@ -23,7 +23,7 @@ conn.commit()  # without this it won't commit/rollback
 query = "SELECT 1"
 conn.execute(query)  # commited automatically, no transaction
 
-# explicit transaction
+# or explicit transaction
 with conn.begin():
   conn.execute(query)
   # commited (or rolled back on error)
@@ -39,9 +39,9 @@ Postgres has no such feature as an implicit transaction so [`psycopg`](https://w
 
 `autocommit` in psycopg (and in sqlachemy) is a way to disable this implicit `BEGIN`. Once `autocommit=True` psycopg won't append any `BEGIN` to you query. This means that each query is executed and commited in one go - you can not roll it back. If you want to rollback you have to call `.begin()` yourself and this will let you commit/rollback explicitly.
 
-Sqlalchemy 2.0 dropped library-level `autocommit` - which means that you can not execute a query without a transaction - sqlalchemy will always open a transaction for you query but you need to commit it yourself.
+Sqlalchemy 2.0 dropped library-level `autocommit` - which means that you can not execute a query without a transaction - sqlalchemy will always open a transaction for you query and you need to commit it yourself.
 
-So the main difference is that in sqlalchemy this query commits if `autocommit=True` :
+So the main difference is that in sqlalchemy 1.x this query commits if `autocommit=True` :
 
 ```python
 conn.execute('DELETE FROM users WHERE id = 1')
@@ -57,9 +57,9 @@ conn.commit()
 As sqla docs [says](https://docs.sqlalchemy.org/en/20/changelog/migration_20.html#driver-level-autocommit-remains-available) , "true" `autocommit` is available via driver.
 > For sqlahchemy "true" autocommit these days [means](https://docs.sqlalchemy.org/en/20/core/connections.html#dbapi-autocommit) a separate transaction level.
 
-One interesting advice from docs is to use a separate engine for read-only queries with `AUTOCOMMIT`:
+One interesting [advice](https://docs.sqlalchemy.org/en/20/core/connections.html#maintaining-multiple-isolation-levels-for-a-single-engine) from docs is to use a separate engine for read-only queries with `AUTOCOMMIT`:
 
->One such use case is an application that has operations that break into “transactional” and “read-only” operations, a separate [`Engine`](https://docs.sqlalchemy.org/en/20/core/connections.html#sqlalchemy.engine.Engine "sqlalchemy.engine.Engine") that makes use of `"AUTOCOMMIT"` may be separated off from the main engine:
+> One such use case is an application that has operations that break into “transactional” and “read-only” operations, a separate [`Engine`](https://docs.sqlalchemy.org/en/20/core/connections.html#sqlalchemy.engine.Engine "sqlalchemy.engine.Engine") that makes use of `"AUTOCOMMIT"` may be separated off from the main engine:
 
 ```python
 from sqlalchemy import create_engine
